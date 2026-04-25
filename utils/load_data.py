@@ -5,12 +5,29 @@ import requests
 from tqdm import tqdm
 
 def download_from_drive():
-    url = "https://drive.google.com/uc?export=download&id=1KvwjUQMBMPpjg98Spv1Vual1hXYaPzXL"
+    file_id = "1KvwjUQMBMPpjg98Spv1Vual1hXYaPzXL"
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
     file_path = "data/reviews.csv"
     
     print("📥 Mengunduh file reviews.csv dari Google Drive (±102 MB)...")
     
-    response = requests.get(url, stream=True)
+    session = requests.Session()
+    
+    # Langkah 1: Dapatkan response awal
+    response = session.get(url, stream=True)
+    
+    # Langkah 2: Tangani konfirmasi Google Drive untuk file besar
+    confirm_token = None
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            confirm_token = value
+            break
+    
+    if confirm_token:
+        url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}"
+        response = session.get(url, stream=True)
+    
+    # Download dengan progress bar
     total_size = int(response.headers.get('content-length', 0))
     
     with open(file_path, "wb") as f, tqdm(
@@ -29,44 +46,28 @@ def download_from_drive():
 def load_airbnb_reviews():
     file_path = 'data/reviews.csv'
     
-    # Download jika belum ada
+    # Download jika file belum ada
     if not os.path.exists(file_path):
         os.makedirs('data', exist_ok=True)
         download_from_drive()
     
     print("📂 Membaca file reviews.csv ...")
     
-    # Cek apakah file valid (bukan HTML)
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-        first_line = f.readline()
-        if '<html' in first_line.lower() or 'google' in first_line.lower():
-            raise ValueError("❌ File yang di-download adalah halaman HTML, bukan CSV. Silakan download manual dan upload ulang.")
-    
-    # Baca CSV dengan debugging
+    # Baca CSV
     df = pd.read_csv(file_path, low_memory=False)
     
-    print(f"✅ Berhasil membaca file dengan {len(df):,} baris")
+    print(f"✅ Berhasil membaca {len(df):,} baris data")
     print(f"📋 Kolom yang tersedia: {list(df.columns)}")
     
-    # Konversi tanggal (fleksibel)
-    date_col = None
-    for col in ['date', 'Date', 'DATE']:
-        if col in df.columns:
-            date_col = col
-            break
-    
-    if date_col:
-        df['date'] = pd.to_datetime(df[date_col], errors='coerce')
-        print(f"✅ Kolom tanggal ditemukan: '{date_col}'")
+    # Konversi tanggal
+    if 'date' in df.columns:
+        df['date'] = pd.to_datetime(df['date'], errors='coerce')
     else:
-        print("⚠️ Kolom tanggal tidak ditemukan!")
+        print("⚠️ Kolom 'date' tidak ditemukan!")
     
     # Tambah kolom analisis
     df['year'] = df['date'].dt.year
     df['month'] = df['date'].dt.month
     df['day_name'] = df['date'].dt.day_name()
-    
-    print(f"✅ Total review: {len(df):,}")
-    print(f"✅ Listing unik: {df['listing_id'].nunique():,}")
     
     return df
